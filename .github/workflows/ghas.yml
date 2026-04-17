@@ -149,8 +149,6 @@ jobs:
                 "chg_model": {
                   "name": "DevOps Simplified"
                 },
-                "u_detailed_validation_steps": "Test Detailed Validation",
-                "u_communication_plan": "Test Communication Plan",
                 "justification": "Test Justification Plan",
                 "implementation_plan": "Test Implementation Plan",
                 "backout_plan": "Test Backout Plan",
