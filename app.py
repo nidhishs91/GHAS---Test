@@ -4,7 +4,8 @@ Random sample app.py for CodeQL scanning.
 
 This is a small task manager CLI that:
 - stores tasks in JSON
-- supports add/list/complete/stat commands
+- supports add/list/complete/delete/stats commands
+- includes a couple of intentional issues for CodeQL testing
 - uses only the Python standard library
 """
 
@@ -13,7 +14,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import pickle
 import random
+import subprocess
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -186,6 +189,27 @@ def seed_tasks(tasks: list[Task], count: int = 3) -> list[Task]:
     return created
 
 
+# ---------------------------------------------------------
+# Intentional CodeQL test cases
+# ---------------------------------------------------------
+
+def preview_task(title: str) -> int:
+    # Intentional security issue for CodeQL testing:
+    # user-controlled input is used in a shell command
+    result = subprocess.run(f"echo Previewing task: {title}", shell=True)
+    return result.returncode
+
+
+def load_legacy_blob(path: str) -> Any:
+    legacy_path = Path(path)
+    if not legacy_path.exists():
+        return None
+
+    # Intentional security issue for CodeQL testing:
+    # unsafe deserialization from a file
+    return pickle.loads(legacy_path.read_bytes())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Random sample task manager")
     subparsers = parser.add_subparsers(dest="command")
@@ -207,6 +231,13 @@ def build_parser() -> argparse.ArgumentParser:
     seed_parser.add_argument("--count", type=int, default=3, help="number of sample tasks to add")
 
     subparsers.add_parser("stats", help="show task statistics")
+
+    # Commands added for CodeQL testing
+    preview_parser = subparsers.add_parser("preview", help="preview a task title")
+    preview_parser.add_argument("title", help="task title to preview")
+
+    legacy_parser = subparsers.add_parser("legacy", help="load a legacy pickle blob")
+    legacy_parser.add_argument("path", help="path to legacy blob")
 
     return parser
 
@@ -256,6 +287,16 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "stats":
             show_stats(tasks)
+            return 0
+
+        # CodeQL test command: command injection sink
+        if args.command == "preview":
+            return preview_task(args.title)
+
+        # CodeQL test command: unsafe deserialization sink
+        if args.command == "legacy":
+            obj = load_legacy_blob(args.path)
+            print(f"Loaded legacy object: {obj!r}")
             return 0
 
         parser.print_help()
