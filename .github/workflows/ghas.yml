@@ -145,9 +145,7 @@ jobs:
                 "service_offering": "d1c2bbdb537300108856ddeeff7b12f7",
                 "requested_by": "a0e11bb23ba32300b200655593efc491",
                 "description": "Production change via GitHub Actions DevOps pipeline",
-                "chg_model": {
-                  "name": "DevOps Simplified"
-                },
+                "chg_model":"5c05c754433a02104a6e556d58b8f278",
                 "justification": "Test Justification Plan",
                 "implementation_plan": "Test Implementation Plan",
                 "backout_plan": "Test Backout Plan",
