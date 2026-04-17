@@ -144,7 +144,6 @@ jobs:
                 "short_description": "UAT - DevOps Simplified Standard Change",
                 "service_offering": "d1c2bbdb537300108856ddeeff7b12f7",
                 "requested_by": "a0e11bb23ba32300b200655593efc491",
-                "assignment_group": "5f721d93c0a8010e015533746de18bf9",
                 "description": "Production change via GitHub Actions DevOps pipeline",
                 "chg_model": {
                   "name": "DevOps Simplified"
