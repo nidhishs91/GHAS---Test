@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -26,35 +27,39 @@ jobs:
           import xml.etree.ElementTree as ET
 
           xml_file = "testResultsFolder/valid-unit.xml"
-          if not os.path.isfile(xml_file):
-              print(f"JUnit XML file not found: {xml_file}")
-              raise SystemExit(1)
-
-          root = ET.parse(xml_file).getroot()
-
           total = passed = failed = skipped = 0
-          for tc in root.iter("testcase"):
-              total += 1
-              if tc.find("failure") is not None or tc.find("error") is not None:
-                  failed += 1
-              elif tc.find("skipped") is not None:
-                  skipped += 1
-              else:
-                  passed += 1
-
           duration = 0.0
-          root_time = root.attrib.get("time", "")
-          if root_time:
-              try:
-                  duration = float(root_time)
-              except:
-                  duration = 0.0
-          else:
-              for suite in root.iter("testsuite"):
+
+          try:
+              if not os.path.isfile(xml_file):
+                  raise FileNotFoundError(f"JUnit XML file not found: {xml_file}")
+
+              root = ET.parse(xml_file).getroot()
+
+              for tc in root.iter("testcase"):
+                  total += 1
+                  if tc.find("failure") is not None or tc.find("error") is not None:
+                      failed += 1
+                  elif tc.find("skipped") is not None:
+                      skipped += 1
+                  else:
+                      passed += 1
+
+              root_time = root.attrib.get("time", "")
+              if root_time:
                   try:
-                      duration += float(suite.attrib.get("time", "0.0") or 0.0)
-                  except:
-                      pass
+                      duration = float(root_time)
+                  except ValueError:
+                      duration = 0.0
+              else:
+                  for suite in root.iter("testsuite"):
+                      try:
+                          duration += float(suite.attrib.get("time", "0.0") or 0.0)
+                      except ValueError:
+                          pass
+
+          except Exception as exc:
+              print(f"[parse_xml] {exc}")
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
               out.write(f"total={total}\n")
@@ -68,7 +73,7 @@ jobs:
         if: always()
         uses: ServiceNow/servicenow-devops-test-report@dev
         with:
-          devops-integration-user-name: ${{ secrets.SN_DEVOPS_USER_DEMO14}}
+          devops-integration-user-name: ${{ secrets.SN_DEVOPS_USER_DEMO14 }}
           devops-integration-user-password: ${{ secrets.SN_DEVOPS_PASSWORD_DEMO14 }}
           instance-url: ${{ secrets.SN_INSTANCE_URL_DEMO14 }}
           tool-id: ${{ secrets.SN_ORCHESTRATION_TOOL_ID_DEMO14 }}
@@ -92,7 +97,6 @@ jobs:
           import xml.etree.ElementTree as ET
 
           xml_file = "testResultsFolder/valid-unit.xml"
-          root = ET.parse(xml_file).getroot()
 
           total = int(os.environ.get("TOTAL") or 0)
           passed = int(os.environ.get("PASSED") or 0)
@@ -101,24 +105,31 @@ jobs:
           duration = float(os.environ.get("DURATION") or 0.0)
 
           rows = []
-          for tc in root.iter("testcase"):
-              name = tc.attrib.get("name", "(unnamed)")
-              classname = tc.attrib.get("classname", "")
-              ttime = tc.attrib.get("time", "0.0")
-              full_name = f"{classname}::{name}" if classname else name
 
-              failure = tc.find("failure")
-              error = tc.find("error")
-              skipped_node = tc.find("skipped")
+          try:
+              root = ET.parse(xml_file).getroot()
 
-              if failure is not None or error is not None:
-                  node = failure if failure is not None else error
-                  msg = (node.attrib.get("message", "") or (node.text or "")).strip() if node is not None else ""
-                  rows.append(f"| ❌ failed | `{full_name}` | {ttime} | {msg} |")
-              elif skipped_node is not None:
-                  rows.append(f"| ⏭️ skipped | `{full_name}` | {ttime} | - |")
-              else:
-                  rows.append(f"| ✅ passed | `{full_name}` | {ttime} | - |")
+              for tc in root.iter("testcase"):
+                  name = tc.attrib.get("name", "(unnamed)")
+                  classname = tc.attrib.get("classname", "")
+                  ttime = tc.attrib.get("time", "0.0")
+                  full_name = f"{classname}::{name}" if classname else name
+
+                  failure = tc.find("failure")
+                  error = tc.find("error")
+                  skipped_node = tc.find("skipped")
+
+                  if failure is not None or error is not None:
+                      node = failure if failure is not None else error
+                      msg = (node.attrib.get("message", "") or (node.text or "")).strip() if node is not None else ""
+                      rows.append(f"| ❌ failed | `{full_name}` | {ttime} | {msg} |")
+                  elif skipped_node is not None:
+                      rows.append(f"| ⏭️ skipped | `{full_name}` | {ttime} | - |")
+                  else:
+                      rows.append(f"| ✅ passed | `{full_name}` | {ttime} | - |")
+
+          except Exception as exc:
+              rows.append(f"| ⚠️ unavailable | `JUnit XML` | 0.0 | {str(exc)} |")
 
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
               f.write("## Test Results\n\n")
@@ -129,13 +140,14 @@ jobs:
           PY
 
       - name: Create ServiceNow Standard Change
-        id: CreateChange
+        if: always()
+        id: create_change
         uses: ServiceNow/servicenow-devops-change@v6.1.0
         with:
           devops-integration-user-name: ${{ secrets.SN_DEVOPS_USER_DEMO14 }}
           devops-integration-user-password: ${{ secrets.SN_DEVOPS_PASSWORD_DEMO14 }}
-          instance-url: ${{ secrets.SN_INSTANCE_URL_DEMO14}}
-          tool-id: ${{ secrets.SN_ORCHESTRATION_TOOL_ID_DEMO14}}
+          instance-url: ${{ secrets.SN_INSTANCE_URL_DEMO14 }}
+          tool-id: ${{ secrets.SN_ORCHESTRATION_TOOL_ID_DEMO14 }}
           context-github: ${{ toJSON(github) }}
           job-name: 'ServiceNow DevOps Change (Prod Deploy)'
           change-request: >
@@ -145,12 +157,12 @@ jobs:
                 "service_offering": "d1c2bbdb537300108856ddeeff7b12f7",
                 "requested_by": "a0e11bb23ba32300b200655593efc491",
                 "description": "Production change via GitHub Actions DevOps pipeline",
-                "chg_model":"5c05c754433a02104a6e556d58b8f278",
+                "chg_model": "5c05c754433a02104a6e556d58b8f278",
                 "justification": "Test Justification Plan",
                 "implementation_plan": "Test Implementation Plan",
                 "backout_plan": "Test Backout Plan",
                 "test_plan": "Test Test-Plan",
-                "business_service":"26da329f0a0a0bb400f69d8159bc753d"
+                "business_service": "26da329f0a0a0bb400f69d8159bc753d"
               }
             }
           interval: '15'
@@ -251,11 +263,11 @@ jobs:
           PY
 
       - name: Add Work Notes
-        if: ${{ always() && steps.CreateChange.outputs['change-request-sys-id'] != '' }}
+        if: ${{ always() && steps.create_change.outputs['change-request-sys-id'] != '' }}
         continue-on-error: true
         shell: bash
         env:
-          SYS_ID: ${{ steps.CreateChange.outputs['change-request-sys-id'] }}
+          SYS_ID: ${{ steps.create_change.outputs['change-request-sys-id'] }}
           SN_URL: ${{ secrets.SN_INSTANCE_URL_DEMO14 }}
           SN_USER: ${{ secrets.SN_DEVOPS_USER_DEMO14 }}
           SN_PASS: ${{ secrets.SN_DEVOPS_PASSWORD_DEMO14 }}
@@ -302,112 +314,3 @@ jobs:
           with urllib.request.urlopen(req, timeout=30) as resp:
               print(resp.read().decode("utf-8"))
           PY
-
-# name: DevOps Simplified Standard Change
-
-# on:
-#   push:
-#     branches:
-#       - DevOps-Simplified
-#   workflow_dispatch:
-
-# permissions:
-#   contents: read
-#   security-events: write
-
-# jobs:
-#   ServiceNowDevOpsChange:
-#     runs-on: ubuntu-latest
-#     name: ServiceNow DevOps Change (Prod Deploy)
-
-#     steps:
-#       - name: Checkout
-#         uses: actions/checkout@v4
-
-#       # -----------------------------
-#       # ✅ GHAS – CodeQL (NON-BLOCKING)
-#       # -----------------------------
-#       - name: Initialize CodeQL
-#         uses: github/codeql-action/init@v3
-#         continue-on-error: true
-#         with:
-#           languages: python
-
-#       - name: Perform CodeQL Analysis
-#         uses: github/codeql-action/analyze@v3
-#         continue-on-error: true
-
-#       # -----------------------------
-#       # ✅ Parse JUnit XML
-#       # -----------------------------
-#       - name: Parse JUnit XML and count tests
-#         id: parse_xml
-#         shell: bash
-#         run: |
-#           python3 <<'PY'
-#           import os
-#           import xml.etree.ElementTree as ET
-
-#           xml_file = "testResultsFolder/valid-unit.xml"
-#           if not os.path.isfile(xml_file):
-#               print(f"JUnit XML file not found: {xml_file}")
-#               raise SystemExit(1)
-
-#           root = ET.parse(xml_file).getroot()
-
-#           total = passed = failed = skipped = 0
-#           for tc in root.iter("testcase"):
-#               total += 1
-#               if tc.find("failure") is not None or tc.find("error") is not None:
-#                   failed += 1
-#               elif tc.find("skipped") is not None:
-#                   skipped += 1
-#               else:
-#                   passed += 1
-
-#           duration = float(root.attrib.get("time", "0") or 0)
-
-#           with open(os.environ["GITHUB_OUTPUT"], "a") as out:
-#               out.write(f"total={total}\n")
-#               out.write(f"passed={passed}\n")
-#               out.write(f"failed={failed}\n")
-#               out.write(f"skipped={skipped}\n")
-#               out.write(f"duration={duration}\n")
-#           PY
-
-#       # -----------------------------
-#       # ✅ Push Test Evidence to SN
-#       # -----------------------------
-#       - name: ServiceNow DevOps Unit Test Results
-#         if: always()
-#         uses: ServiceNow/servicenow-devops-test-report@dev
-#         with:
-#           devops-integration-user-name: ${{ secrets.SN_DEVOPS_USER }}
-#           devops-integration-user-password: ${{ secrets.SN_DEVOPS_PASSWORD }}
-#           instance-url: ${{ secrets.SN_INSTANCE_URL }}
-#           tool-id: ${{ secrets.SN_ORCHESTRATION_TOOL_ID }}
-#           context-github: ${{ toJSON(github) }}
-#           job-name: 'ServiceNow DevOps Change (Prod Deploy)'
-#           xml-report-filename: testResultsFolder/valid-unit.xml
-#           test-summary-name: 'GitHub Test Summary - JUnit - ${{ github.run_id }}'
-
-#       # -----------------------------
-#       # ✅ Create ServiceNow Change
-#       # -----------------------------
-#       - name: Create ServiceNow Standard Change
-#         id: CreateChange
-#         uses: ServiceNow/servicenow-devops-change@v6.1.0
-#         with:
-#           devops-integration-user-name: ${{ secrets.SN_DEVOPS_USER }}
-#           devops-integration-user-password: ${{ secrets.SN_DEVOPS_PASSWORD }}
-#           instance-url: ${{ secrets.SN_INSTANCE_URL }}
-#           tool-id: ${{ secrets.SN_ORCHESTRATION_TOOL_ID }}
-#           context-github: ${{ toJSON(github) }}
-#           job-name: 'ServiceNow DevOps Change (Prod Deploy)'
-#           change-request: >
-#             {
-#               "attributes": {
-#                 "short_description": "UAT - DevOps Simplified Standard Change",
-#                 "chg_model": { "name": "DevOps Simplified" }
-#               }
-#             }
