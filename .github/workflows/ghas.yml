@@ -3,7 +3,7 @@ name: DevOps Simplified Standard Change
 on:
   push:
     branches:
-      - DevOps-Simplified
+      - main
 
 permissions:
   contents: read
