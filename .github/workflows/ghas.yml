@@ -1,0 +1,418 @@
+name: DevOps Simplified Standard Change
+
+on:
+  push:
+    branches:
+      - DevOps-Simplified
+
+permissions:
+  contents: read
+
+jobs:
+  ServiceNowDevOpsChange:
+    runs-on: ubuntu-latest
+    name: ServiceNow DevOps Change (Prod Deploy)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Parse JUnit XML and count tests
+        id: parse_xml
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+
+          xml_file = "testResultsFolder/valid-unit.xml"
+          if not os.path.isfile(xml_file):
+              print(f"JUnit XML file not found: {xml_file}")
+              raise SystemExit(1)
+
+          root = ET.parse(xml_file).getroot()
+
+          total = passed = failed = skipped = 0
+          for tc in root.iter("testcase"):
+              total += 1
+              if tc.find("failure") is not None or tc.find("error") is not None:
+                  failed += 1
+              elif tc.find("skipped") is not None:
+                  skipped += 1
+              else:
+                  passed += 1
+
+          duration = 0.0
+          root_time = root.attrib.get("time", "")
+          if root_time:
+              try:
+                  duration = float(root_time)
+              except:
+                  duration = 0.0
+          else:
+              for suite in root.iter("testsuite"):
+                  try:
+                      duration += float(suite.attrib.get("time", "0.0") or 0.0)
+                  except:
+                      pass
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"total={total}\n")
+              out.write(f"passed={passed}\n")
+              out.write(f"failed={failed}\n")
+              out.write(f"skipped={skipped}\n")
+              out.write(f"duration={duration:.6f}\n")
+          PY
+
+      - name: ServiceNow DevOps Unit Test Results
+        if: always()
+        uses: ServiceNow/servicenow-devops-test-report@dev
+        with:
+          devops-integration-user-name: ${{ secrets.SN_DEVOPS_USER_DEMO14}}
+          devops-integration-user-password: ${{ secrets.SN_DEVOPS_PASSWORD_DEMO14 }}
+          instance-url: ${{ secrets.SN_INSTANCE_URL_DEMO14 }}
+          tool-id: ${{ secrets.SN_ORCHESTRATION_TOOL_ID_DEMO14 }}
+          context-github: ${{ toJSON(github) }}
+          job-name: 'ServiceNow DevOps Change (Prod Deploy)'
+          xml-report-filename: testResultsFolder/valid-unit.xml
+          test-summary-name: 'GitHub Test Summary - JUnit - ${{ github.run_id }}'
+
+      - name: Create GitHub test summary
+        if: always()
+        shell: bash
+        env:
+          TOTAL: ${{ steps.parse_xml.outputs.total }}
+          PASSED: ${{ steps.parse_xml.outputs.passed }}
+          FAILED: ${{ steps.parse_xml.outputs.failed }}
+          SKIPPED: ${{ steps.parse_xml.outputs.skipped }}
+          DURATION: ${{ steps.parse_xml.outputs.duration }}
+        run: |
+          python3 <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+
+          xml_file = "testResultsFolder/valid-unit.xml"
+          root = ET.parse(xml_file).getroot()
+
+          total = int(os.environ.get("TOTAL") or 0)
+          passed = int(os.environ.get("PASSED") or 0)
+          failed = int(os.environ.get("FAILED") or 0)
+          skipped = int(os.environ.get("SKIPPED") or 0)
+          duration = float(os.environ.get("DURATION") or 0.0)
+
+          rows = []
+          for tc in root.iter("testcase"):
+              name = tc.attrib.get("name", "(unnamed)")
+              classname = tc.attrib.get("classname", "")
+              ttime = tc.attrib.get("time", "0.0")
+              full_name = f"{classname}::{name}" if classname else name
+
+              failure = tc.find("failure")
+              error = tc.find("error")
+              skipped_node = tc.find("skipped")
+
+              if failure is not None or error is not None:
+                  node = failure if failure is not None else error
+                  msg = (node.attrib.get("message", "") or (node.text or "")).strip() if node is not None else ""
+                  rows.append(f"| ❌ failed | `{full_name}` | {ttime} | {msg} |")
+              elif skipped_node is not None:
+                  rows.append(f"| ⏭️ skipped | `{full_name}` | {ttime} | - |")
+              else:
+                  rows.append(f"| ✅ passed | `{full_name}` | {ttime} | - |")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write("## Test Results\n\n")
+              f.write(f"**Total:** {total} | **Passed:** {passed} | **Failed:** {failed} | **Skipped:** {skipped} | **Duration:** {duration:.3f}s\n\n")
+              f.write("| Status | Test | Time | Message |\n")
+              f.write("|---|---|---:|---|\n")
+              f.write("\n".join(rows) + "\n")
+          PY
+
+      - name: Create ServiceNow Standard Change
+        id: CreateChange
+        uses: ServiceNow/servicenow-devops-change@v6.1.0
+        with:
+          devops-integration-user-name: ${{ secrets.SN_DEVOPS_USER_DEMO14 }}
+          devops-integration-user-password: ${{ secrets.SN_DEVOPS_PASSWORD_DEMO14 }}
+          instance-url: ${{ secrets.SN_INSTANCE_URL_DEMO14}}
+          tool-id: ${{ secrets.SN_ORCHESTRATION_TOOL_ID_DEMO14}}
+          context-github: ${{ toJSON(github) }}
+          job-name: 'ServiceNow DevOps Change (Prod Deploy)'
+          change-request: >
+            {
+              "attributes": {
+                "short_description": "UAT - DevOps Simplified Standard Change",
+                "service_offering": "d1c2bbdb537300108856ddeeff7b12f7",
+                "requested_by": "a0e11bb23ba32300b200655593efc491",
+                "assignment_group": "5f721d93c0a8010e015533746de18bf9",
+                "description": "Production change via GitHub Actions DevOps pipeline",
+                "chg_model": {
+                  "name": "DevOps Simplified"
+                },
+                "u_detailed_validation_steps": "Test Detailed Validation",
+                "u_communication_plan": "Test Communication Plan",
+                "justification": "Test Justification Plan",
+                "implementation_plan": "Test Implementation Plan",
+                "backout_plan": "Test Backout Plan",
+                "test_plan": "Test Test-Plan",
+                "business_service":"26da329f0a0a0bb400f69d8159bc753d"
+              }
+            }
+          interval: '15'
+          timeout: '900'
+
+      - name: Update ServiceNow Test Summary metadata
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          SN_INSTANCE_URL: ${{ secrets.SN_INSTANCE_URL_DEMO14 }}
+          SN_USER: ${{ secrets.SN_DEVOPS_USER_DEMO14 }}
+          SN_PASS: ${{ secrets.SN_DEVOPS_PASSWORD_DEMO14 }}
+          SUMMARY_NAME: GitHub Test Summary - JUnit - ${{ github.run_id }}
+          BUILD_ID: ${{ github.run_id }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DURATION: ${{ steps.parse_xml.outputs.duration }}
+        run: |
+          python3 <<'PY'
+          import os
+          import json
+          import base64
+          import urllib.request
+          import urllib.parse
+          import time
+          from datetime import datetime, timezone, timedelta
+
+          sn_url = os.environ["SN_INSTANCE_URL"].rstrip("/")
+          user = os.environ["SN_USER"]
+          pw = os.environ["SN_PASS"]
+          summary_name = os.environ["SUMMARY_NAME"]
+          build_id = os.environ["BUILD_ID"]
+          build_number = os.environ["BUILD_NUMBER"]
+          run_url = os.environ["RUN_URL"]
+          duration = float(os.environ.get("DURATION") or 0.0)
+
+          auth = base64.b64encode(f"{user}:{pw}".encode()).decode()
+
+          def request(method, url, payload=None):
+              data = json.dumps(payload).encode("utf-8") if payload is not None else None
+              req = urllib.request.Request(url, data=data, method=method)
+              req.add_header("Authorization", f"Basic {auth}")
+              req.add_header("Content-Type", "application/json")
+              req.add_header("Accept", "application/json")
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  body = resp.read().decode("utf-8")
+                  return json.loads(body) if body else {}
+
+          queries = [
+              f"build_id={build_id}",
+              f"build_number={build_number}",
+              f"name={summary_name}",
+              f"nameLIKE{summary_name}",
+              f"short_descriptionLIKE{summary_name}",
+          ]
+
+          sys_id = ""
+          for attempt in range(1, 19):
+              for q in queries:
+                  encoded_q = urllib.parse.quote(f"{q}^ORDERBYDESCsys_created_on", safe="")
+                  get_url = f"{sn_url}/api/now/table/sn_devops_test_summary?sysparm_query={encoded_q}&sysparm_limit=1"
+                  try:
+                      resp = request("GET", get_url)
+                      result = resp.get("result", [])
+                      if result:
+                          sys_id = result[0]["sys_id"]
+                          print(f"Found summary using query: {q}")
+                          break
+                  except Exception as e:
+                      print(f"Query failed for {q}: {e}")
+
+              if sys_id:
+                  break
+
+              print(f"Summary not visible yet, retry {attempt}/18 in 10s...")
+              time.sleep(10)
+
+          if not sys_id:
+              print(f"No ServiceNow Test Summary found for: {summary_name}")
+              raise SystemExit(0)
+
+          finish_dt = datetime.now(timezone.utc)
+          start_dt = finish_dt - timedelta(seconds=duration)
+
+          payload = {
+              "start_time": start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+              "finish_time": finish_dt.strftime("%Y-%m-%d %H:%M:%S"),
+              "url": run_url,
+              "duration": round(duration, 6)
+          }
+
+          put_url = f"{sn_url}/api/now/table/sn_devops_test_summary/{sys_id}"
+          updated = request("PATCH", put_url, payload)
+
+          print("Updated Test Summary:")
+          print(json.dumps(updated, indent=2))
+          PY
+
+      - name: Add Work Notes
+        if: ${{ always() && steps.CreateChange.outputs['change-request-sys-id'] != '' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          SYS_ID: ${{ steps.CreateChange.outputs['change-request-sys-id'] }}
+          SN_URL: ${{ secrets.SN_INSTANCE_URL_DEMO14 }}
+          SN_USER: ${{ secrets.SN_DEVOPS_USER_DEMO14 }}
+          SN_PASS: ${{ secrets.SN_DEVOPS_PASSWORD_DEMO14 }}
+          TOTAL: ${{ steps.parse_xml.outputs.total }}
+          PASSED: ${{ steps.parse_xml.outputs.passed }}
+          FAILED: ${{ steps.parse_xml.outputs.failed }}
+          SKIPPED: ${{ steps.parse_xml.outputs.skipped }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 <<'PY'
+          import os
+          import json
+          import base64
+          import urllib.request
+
+          sys_id = os.environ["SYS_ID"]
+          sn_url = os.environ["SN_URL"].rstrip("/")
+          user = os.environ["SN_USER"]
+          pw = os.environ["SN_PASS"]
+
+          total = os.environ.get("TOTAL", "0")
+          passed = os.environ.get("PASSED", "0")
+          failed = os.environ.get("FAILED", "0")
+          skipped = os.environ.get("SKIPPED", "0")
+          run_url = os.environ["RUN_URL"]
+
+          auth = base64.b64encode(f"{user}:{pw}".encode()).decode()
+
+          payload = {
+              "work_notes": (
+                  f"GitHub Pipeline completed.\n"
+                  f"Run: {run_url}\n\n"
+                  f"Tests — Total: {total} | Passed: {passed} | Failed: {failed} | Skipped: {skipped}"
+              )
+          }
+
+          url = f"{sn_url}/api/now/table/change_request/{sys_id}"
+          data = json.dumps(payload).encode("utf-8")
+          req = urllib.request.Request(url, data=data, method="PATCH")
+          req.add_header("Authorization", f"Basic {auth}")
+          req.add_header("Content-Type", "application/json")
+          req.add_header("Accept", "application/json")
+
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              print(resp.read().decode("utf-8"))
+          PY
+
+# name: DevOps Simplified Standard Change
+
+# on:
+#   push:
+#     branches:
+#       - DevOps-Simplified
+#   workflow_dispatch:
+
+# permissions:
+#   contents: read
+#   security-events: write
+
+# jobs:
+#   ServiceNowDevOpsChange:
+#     runs-on: ubuntu-latest
+#     name: ServiceNow DevOps Change (Prod Deploy)
+
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
+
+#       # -----------------------------
+#       # ✅ GHAS – CodeQL (NON-BLOCKING)
+#       # -----------------------------
+#       - name: Initialize CodeQL
+#         uses: github/codeql-action/init@v3
+#         continue-on-error: true
+#         with:
+#           languages: python
+
+#       - name: Perform CodeQL Analysis
+#         uses: github/codeql-action/analyze@v3
+#         continue-on-error: true
+
+#       # -----------------------------
+#       # ✅ Parse JUnit XML
+#       # -----------------------------
+#       - name: Parse JUnit XML and count tests
+#         id: parse_xml
+#         shell: bash
+#         run: |
+#           python3 <<'PY'
+#           import os
+#           import xml.etree.ElementTree as ET
+
+#           xml_file = "testResultsFolder/valid-unit.xml"
+#           if not os.path.isfile(xml_file):
+#               print(f"JUnit XML file not found: {xml_file}")
+#               raise SystemExit(1)
+
+#           root = ET.parse(xml_file).getroot()
+
+#           total = passed = failed = skipped = 0
+#           for tc in root.iter("testcase"):
+#               total += 1
+#               if tc.find("failure") is not None or tc.find("error") is not None:
+#                   failed += 1
+#               elif tc.find("skipped") is not None:
+#                   skipped += 1
+#               else:
+#                   passed += 1
+
+#           duration = float(root.attrib.get("time", "0") or 0)
+
+#           with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+#               out.write(f"total={total}\n")
+#               out.write(f"passed={passed}\n")
+#               out.write(f"failed={failed}\n")
+#               out.write(f"skipped={skipped}\n")
+#               out.write(f"duration={duration}\n")
+#           PY
+
+#       # -----------------------------
+#       # ✅ Push Test Evidence to SN
+#       # -----------------------------
+#       - name: ServiceNow DevOps Unit Test Results
+#         if: always()
+#         uses: ServiceNow/servicenow-devops-test-report@dev
+#         with:
+#           devops-integration-user-name: ${{ secrets.SN_DEVOPS_USER }}
+#           devops-integration-user-password: ${{ secrets.SN_DEVOPS_PASSWORD }}
+#           instance-url: ${{ secrets.SN_INSTANCE_URL }}
+#           tool-id: ${{ secrets.SN_ORCHESTRATION_TOOL_ID }}
+#           context-github: ${{ toJSON(github) }}
+#           job-name: 'ServiceNow DevOps Change (Prod Deploy)'
+#           xml-report-filename: testResultsFolder/valid-unit.xml
+#           test-summary-name: 'GitHub Test Summary - JUnit - ${{ github.run_id }}'
+
+#       # -----------------------------
+#       # ✅ Create ServiceNow Change
+#       # -----------------------------
+#       - name: Create ServiceNow Standard Change
+#         id: CreateChange
+#         uses: ServiceNow/servicenow-devops-change@v6.1.0
+#         with:
+#           devops-integration-user-name: ${{ secrets.SN_DEVOPS_USER }}
+#           devops-integration-user-password: ${{ secrets.SN_DEVOPS_PASSWORD }}
+#           instance-url: ${{ secrets.SN_INSTANCE_URL }}
+#           tool-id: ${{ secrets.SN_ORCHESTRATION_TOOL_ID }}
+#           context-github: ${{ toJSON(github) }}
+#           job-name: 'ServiceNow DevOps Change (Prod Deploy)'
+#           change-request: >
+#             {
+#               "attributes": {
+#                 "short_description": "UAT - DevOps Simplified Standard Change",
+#                 "chg_model": { "name": "DevOps Simplified" }
+#               }
+#             }
