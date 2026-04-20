@@ -313,7 +313,7 @@
 #           req.add_header("Content-Type", "application/json")
 #           req.add_header("Accept", "application/json")
 
-name: DevOps Normal Change
+name: DevOps Simplified Standard Change
 
 on:
   push:
@@ -363,18 +363,18 @@ jobs:
     # -----------------------------------
     # ADD WORK NOTES
     # -----------------------------------
-    - name: Add Work Notes
-      run: |
-        SYS_ID="${{ steps.CreateChange.outputs.change-request-sys-id }}"
-        echo "Change sys_id = $SYS_ID"
+    # - name: Add Work Notes
+    #   run: |
+    #     SYS_ID="${{ steps.CreateChange.outputs.change-request-sys-id }}"
+    #     echo "Change sys_id = $SYS_ID"
 
-        curl -X PUT \
-        "${{ secrets.SN_INSTANCE_URL }}/api/now/table/change_request/${SYS_ID}" \
-        --user "${{ secrets.SN_DEVOPS_USER_DEMO14 }}:${{ secrets.SN_DEVOPS_PASSWORD_DEMO14 }}" \
-        --header "Content-Type: application/json" \
-        --data "{
-          \"work_notes\": \"GitHub Pipeline completed successfully. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"
-        }"
-          with urllib.request.urlopen(req, timeout=30) as resp:
-              print(resp.read().decode("utf-8"))
+    #     curl -X PUT \
+    #     "${{ secrets.SN_INSTANCE_URL }}/api/now/table/change_request/${SYS_ID}" \
+    #     --user "${{ secrets.SN_DEVOPS_USER_DEMO14 }}:${{ secrets.SN_DEVOPS_PASSWORD_DEMO14 }}" \
+    #     --header "Content-Type: application/json" \
+    #     --data "{
+    #       \"work_notes\": \"GitHub Pipeline completed successfully. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"
+    #     }"
+    #       with urllib.request.urlopen(req, timeout=30) as resp:
+    #           print(resp.read().decode("utf-8"))
           PY
